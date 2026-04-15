@@ -85,50 +85,54 @@ export default function App() {
 
       <div className="flex-1 flex flex-col lg:flex-row min-h-0">
 
-        {/* Left panel — fixed height, never scrolls */}
-        <div className="lg:w-[400px] flex-shrink-0 flex flex-col gap-4 p-5 border-r border-gray-800 h-full overflow-hidden">
-          <div>
-            <h2 className="text-sm font-semibold text-gray-300 mb-1">What do you want to build?</h2>
-            <p className="text-xs text-gray-500 mb-3">
-              Describe a project and the agent will scaffold, code, and run it for you.
-            </p>
-            <ChatInput onSubmit={handleSubmit} disabled={isRunning} />
+        {/* Left panel — fixed, never scrolls. Split into top (scrollable inner) + bottom (always visible) */}
+        <div className="lg:w-[400px] flex-shrink-0 flex flex-col border-r border-gray-800 h-full">
+
+          {/* Top section: scrolls internally if content overflows */}
+          <div className="flex-1 flex flex-col gap-4 p-5 overflow-y-auto min-h-0">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-300 mb-1">What do you want to build?</h2>
+              <p className="text-xs text-gray-500 mb-3">
+                Describe a project and the agent will scaffold, code, and run it for you.
+              </p>
+              <ChatInput onSubmit={handleSubmit} disabled={isRunning} />
+            </div>
+
+            {/* Example prompts */}
+            {!isRunning && events.length === 0 && (
+              <div>
+                <p className="text-xs text-gray-600 mb-2 font-medium uppercase tracking-wider">Try an example</p>
+                <div className="space-y-2">
+                  {[
+                    'Build a todo app with add, complete, and delete features',
+                    'Create a simple calculator app',
+                    'Build a countdown timer with start/stop/reset',
+                    'Make a color palette generator',
+                  ].map(example => (
+                    <button
+                      key={example}
+                      onClick={() => handleSubmit(example)}
+                      className="w-full text-left text-xs text-gray-400 hover:text-gray-200 bg-gray-900 hover:bg-gray-800 border border-gray-800 hover:border-gray-700 rounded-lg px-3 py-2.5 transition-colors cursor-pointer"
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Error message */}
+            {errorMsg && (
+              <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3">
+                <p className="text-red-400 text-xs font-semibold">Error</p>
+                <p className="text-red-300 text-xs mt-1">{errorMsg}</p>
+              </div>
+            )}
           </div>
 
-          {/* Example prompts */}
-          {!isRunning && events.length === 0 && (
-            <div className="mt-2">
-              <p className="text-xs text-gray-600 mb-2 font-medium uppercase tracking-wider">Try an example</p>
-              <div className="space-y-2">
-                {[
-                  'Build a todo app with add, complete, and delete features',
-                  'Create a simple calculator app',
-                  'Build a countdown timer with start/stop/reset',
-                  'Make a color palette generator',
-                ].map(example => (
-                  <button
-                    key={example}
-                    onClick={() => handleSubmit(example)}
-                    className="w-full text-left text-xs text-gray-400 hover:text-gray-200 bg-gray-900 hover:bg-gray-800 border border-gray-800 hover:border-gray-700 rounded-lg px-3 py-2.5 transition-colors cursor-pointer"
-                  >
-                    {example}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Error message */}
-          {errorMsg && (
-            <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3">
-              <p className="text-red-400 text-xs font-semibold">Error</p>
-              <p className="text-red-300 text-xs mt-1">{errorMsg}</p>
-            </div>
-          )}
-
-          {/* Project link — appears when dev server is ready */}
+          {/* Bottom section: always visible, never clipped — project link lives here */}
           {serverUrl && (
-            <div className="mt-auto">
+            <div className="flex-shrink-0 p-5 border-t border-gray-800">
               <ProjectLink url={serverUrl} />
             </div>
           )}

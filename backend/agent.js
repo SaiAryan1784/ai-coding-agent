@@ -187,13 +187,19 @@ export async function runAgent(userPrompt, sessionId) {
 
       sessionStore.emit(sessionId, { type: 'tool_result', tool: name, result });
 
-      // Detect dev server URL in terminal output
-      if (name === 'run_terminal' && result.stdout) {
-        const urlMatch = result.stdout.match(/Local:\s+(http:\/\/localhost:\d+)/i)
-          || result.stdout.match(/(http:\/\/localhost:\d+)/);
+      // Detect dev server URL in terminal output.
+      // Strip ANSI escape codes first — Vite uses color codes which break naive regex.
+      if (name === 'run_terminal' && (result.stdout || result.stderr)) {
+        const combined = (result.stdout || '') + (result.stderr || '');
+        // eslint-disable-next-line no-control-regex
+        const clean = combined.replace(/\x1B\[[0-9;]*[mGKHF]/g, '');
+        const urlMatch = clean.match(/Local:\s+(http:\/\/localhost:\d+)/i)
+          || clean.match(/localhost:\s*(http:\/\/localhost:\d+)/i)
+          || clean.match(/(http:\/\/localhost:\d+)/);
         if (urlMatch) {
-          console.log(`[agent:${sessionId.slice(0, 8)}] Dev server URL detected: ${urlMatch[1]}`);
-          sessionStore.emit(sessionId, { type: 'server_ready', url: urlMatch[1] });
+          const url = urlMatch[1].replace(/\/$/, ''); // strip trailing slash
+          console.log(`[agent:${sessionId.slice(0, 8)}] Dev server URL detected: ${url}`);
+          sessionStore.emit(sessionId, { type: 'server_ready', url });
         }
       }
 

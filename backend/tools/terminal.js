@@ -77,7 +77,8 @@ export async function runTerminal({ command, timeout_ms = 60000 }, sessionId) {
 
     const child = spawn('bash', ['-c', effectiveCommand], {
       cwd: sandboxDir,
-      env: { ...process.env },
+      // NO_COLOR + FORCE_COLOR=0 strips ANSI codes from tools like Vite/npm
+      env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
       detached: isServer,
       stdio: isServer ? ['ignore', 'pipe', 'pipe'] : 'pipe',
     });
