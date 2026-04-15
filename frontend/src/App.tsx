@@ -4,6 +4,10 @@ import AgentLog from './components/AgentLog'
 import ProjectLink from './components/ProjectLink'
 import type { AgentEvent } from './types'
 
+// In production the Vite proxy doesn't exist — use the Railway URL directly.
+// Set VITE_BACKEND_URL in Vercel env vars to your Railway backend URL.
+const BACKEND = (import.meta.env.VITE_BACKEND_URL as string | undefined)?.replace(/\/$/, '') ?? ''
+
 export default function App() {
   const [events, setEvents] = useState<AgentEvent[]>([])
   const [serverUrl, setServerUrl] = useState<string | null>(null)
@@ -21,7 +25,7 @@ export default function App() {
 
     let sessionId: string
     try {
-      const res = await fetch('/api/chat', {
+      const res = await fetch(`${BACKEND}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt }),
@@ -39,7 +43,7 @@ export default function App() {
     }
 
     // Open SSE stream for real-time events
-    const es = new EventSource(`/api/stream/${sessionId}`)
+    const es = new EventSource(`${BACKEND}/api/stream/${sessionId}`)
     esRef.current = es
 
     es.onmessage = (e: MessageEvent) => {
