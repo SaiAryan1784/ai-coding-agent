@@ -13,9 +13,11 @@ const PORT = process.env.PORT || 3001;
 
 // Middleware
 // FRONTEND_URL can be a comma-separated list for multiple origins (e.g. local + Vercel)
-const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
-  .split(',')
-  .map(o => o.trim());
+// BACKEND_URL is also allowed so same-domain Railway deployments work (frontend + backend on same host)
+const allowedOrigins = [
+  ...(process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map(o => o.trim()),
+  ...(process.env.BACKEND_URL ? [process.env.BACKEND_URL.replace(/\/$/, '')] : []),
+].filter(Boolean);
 
 app.use(cors({
   origin: (origin, cb) => {
@@ -168,6 +170,7 @@ app.listen(PORT, () => {
   console.log(`[server] Model: ${process.env.MODEL || 'nvidia/nemotron-3-super-120b-a12b:free'}`);
   console.log(`[server] Backend URL: ${process.env.BACKEND_URL || 'http://localhost:' + PORT}`);
   console.log(`[server] Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
+  console.log(`[server] CORS allowed origins: ${allowedOrigins.join(', ')}`);
   if (!process.env.OPENROUTER_API_KEY) {
     console.warn('[server] WARNING: OPENROUTER_API_KEY is not set!');
   } else {
