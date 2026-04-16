@@ -1,6 +1,6 @@
 import axios from 'axios';
 import path from 'path';
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync, statSync } from 'fs';
 import { execSync } from 'child_process';
 import * as sessionStore from './sessionStore.js';
 import { dispatchTool, TOOL_DEFINITIONS, BASE_SANDBOX_DIR } from './tools/index.js';
@@ -24,7 +24,23 @@ const SYSTEM_PROMPT = `You are an expert AI coding agent. Your job is to build c
 - NEVER use placeholders or TODO comments — write complete, working code.
 - All file paths are relative to the sandbox root. Commands run inside the session sandbox automatically.
 - Prefer writing complete files. Do not make partial edits.
-- NEVER run npm run dev. Always use npm run build as the final step.`;
+- NEVER run npm run dev. Always use npm run build as the final step.
+
+## CSS Import Rules — CRITICAL
+- NEVER use default imports for CSS files. This causes a fatal Vite build error.
+  WRONG:  import App from './App.css'
+  WRONG:  import styles from './index.css'
+  CORRECT: import './App.css'
+  CORRECT: import './index.css'
+- CSS files do NOT export anything. Always use side-effect imports (no variable name).
+
+## Terminal Command Rules — CRITICAL
+- ALL commands that operate on the project MUST be prefixed with \`cd my-app && \` because the sandbox root is NOT the project directory.
+  WRONG:  npm run build
+  WRONG:  npm install
+  CORRECT: cd my-app && npm run build
+  CORRECT: cd my-app && npm install
+- Only \`npm create vite@latest\` runs at the sandbox root (it creates my-app/).`;
 
 // Finds the first project directory inside the session sandbox that has a package.json
 function findProjectDir(sessionId) {
@@ -86,6 +102,32 @@ function fixDistPaths(projectDir) {
   }
 }
 
+// Scan all JS/TS/JSX/TSX files under srcDir and replace bad CSS default imports
+// e.g. `import App from './App.css'` → `import './App.css'`
+function fixCssImports(projectDir) {
+  const srcDir = path.join(projectDir, 'src');
+  if (!existsSync(srcDir)) return;
+
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir)) {
+      const full = path.join(dir, entry);
+      if (statSync(full).isDirectory()) { walk(full); continue; }
+      if (!/\.(js|ts|jsx|tsx)$/.test(entry)) continue;
+      const original = readFileSync(full, 'utf-8');
+      // Replace: import <identifier> from '<...>.css'  →  import '<...>.css'
+      const fixed = original.replace(
+        /import\s+\w+\s+from\s+(['"])((?:[^'"]*)?\.css)\1/g,
+        "import $1$2$1"
+      );
+      if (fixed !== original) {
+        writeFileSync(full, fixed, 'utf-8');
+        console.log(`[autoBuild] Fixed CSS default import in ${path.relative(projectDir, full)}`);
+      }
+    }
+  };
+  walk(srcDir);
+}
+
 // Called after the agent loop finishes. If the model skipped npm run build,
 // run it automatically so the user always gets a preview link.
 async function autoBuild(sessionId) {
@@ -105,6 +147,9 @@ async function autoBuild(sessionId) {
     console.warn(`[agent:${sessionId.slice(0, 8)}] autoBuild: no project directory found, skipping`);
     return;
   }
+
+  // Fix any bad CSS default imports before building
+  fixCssImports(projectDir);
 
   // Patch vite.config to use relative base before building
   patchViteConfig(projectDir);
