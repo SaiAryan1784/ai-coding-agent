@@ -41,6 +41,16 @@ function findDistDir(sessionId) {
   return null;
 }
 
+// Redirect /preview/:sessionId (no trailing slash) → /preview/:sessionId/
+// Without the trailing slash the browser resolves ./assets/... one directory too high,
+// landing at /preview/assets/... instead of /preview/:sessionId/assets/...
+app.get('/preview/:sessionId', (req, res, next) => {
+  if (!req.url.endsWith('/')) {
+    return res.redirect(302, req.url + '/');
+  }
+  next();
+});
+
 // Static assets (JS, CSS, images) — must come before the SPA fallback
 app.use('/preview/:sessionId', (req, res, next) => {
   const distDir = findDistDir(req.params.sessionId);

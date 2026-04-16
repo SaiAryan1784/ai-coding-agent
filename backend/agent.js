@@ -137,7 +137,7 @@ async function autoBuild(sessionId) {
     // Build already ran — fix paths in case it was built with absolute base
     if (projectDir) fixDistPaths(projectDir);
     const base = (process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`).replace(/\/$/, '');
-    const previewUrl = `${base}/preview/${sessionId}`;
+    const previewUrl = `${base}/preview/${sessionId}/`;
     console.log(`[agent:${sessionId.slice(0, 8)}] dist/ exists → preview: ${previewUrl}`);
     sessionStore.emit(sessionId, { type: 'server_ready', url: previewUrl });
     return;
@@ -169,7 +169,7 @@ async function autoBuild(sessionId) {
     sessionStore.emit(sessionId, { type: 'tool_result', tool: 'run_terminal', result: { stdout, exit_code: 0 } });
 
     const base = (process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`).replace(/\/$/, '');
-    const previewUrl = `${base}/preview/${sessionId}`;
+    const previewUrl = `${base}/preview/${sessionId}/`;
     console.log(`[agent:${sessionId.slice(0, 8)}] autoBuild preview: ${previewUrl}`);
     sessionStore.emit(sessionId, { type: 'server_ready', url: previewUrl });
   } catch (err) {
@@ -353,7 +353,7 @@ export async function runAgent(userPrompt, sessionId) {
           const projectDir = findProjectDir(sessionId);
           if (projectDir) fixDistPaths(projectDir);
           const base = (process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`).replace(/\/$/, '');
-          const previewUrl = `${base}/preview/${sessionId}`;
+          const previewUrl = `${base}/preview/${sessionId}/`;
           console.log(`[agent:${sessionId.slice(0, 8)}] Build succeeded → preview: ${previewUrl}`);
           sessionStore.emit(sessionId, { type: 'server_ready', url: previewUrl });
         } else {
