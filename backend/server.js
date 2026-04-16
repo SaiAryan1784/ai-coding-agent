@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
-import { existsSync, readdirSync } from 'fs';
+import { existsSync, readdirSync, statSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import * as sessionStore from './sessionStore.js';
 import { runAgent } from './agent.js';
@@ -51,18 +51,35 @@ app.get('/preview/:sessionId', (req, res, next) => {
   next();
 });
 
-// Static assets (JS, CSS, images) — must come before the SPA fallback
-app.use('/preview/:sessionId', (req, res, next) => {
-  const distDir = findDistDir(req.params.sessionId);
-  if (!distDir) return res.status(404).send('Preview not ready — build may still be running.');
-  console.log(`[server] Preview request: ${req.params.sessionId} → ${req.path}`);
-  express.static(distDir)(req, res, next);
-});
+// Serve built app: static assets if the file exists, index.html otherwise (SPA fallback).
+// We use res.sendFile directly instead of express.static() to avoid issues with dynamic
+// middleware invocation where express.static falls through to next() on missing files,
+// causing the SPA fallback to return text/html for .css/.js assets (MIME type errors).
+app.use('/preview/:sessionId', (req, res) => {
+  const { sessionId } = req.params;
+  const distDir = findDistDir(sessionId);
+  if (!distDir) {
+    console.warn(`[server] Preview not ready for ${sessionId.slice(0, 8)}`);
+    return res.status(404).send('Preview not ready — build may still be running.');
+  }
 
-// SPA fallback — any route that isn't a file serves index.html
-app.get('/preview/:sessionId/*', (req, res) => {
-  const distDir = findDistDir(req.params.sessionId);
-  if (!distDir) return res.status(404).send('Not found.');
+  // req.url has the /preview/:sessionId prefix stripped, e.g. '/' or '/assets/foo.css'
+  const urlPath = req.url.split('?')[0]; // strip query string
+  const relPath = urlPath === '/' ? 'index.html' : urlPath.replace(/^\/+/, '');
+
+  // Path traversal guard
+  const filePath = path.resolve(distDir, relPath);
+  if (!filePath.startsWith(distDir + path.sep)) {
+    return res.status(403).send('Forbidden');
+  }
+
+  if (existsSync(filePath) && statSync(filePath).isFile()) {
+    console.log(`[server] ${sessionId.slice(0, 8)} → ${relPath}`);
+    return res.sendFile(filePath);
+  }
+
+  // SPA fallback: client-side routes that aren't real files get index.html
+  console.log(`[server] ${sessionId.slice(0, 8)} SPA fallback: ${urlPath}`);
   res.sendFile(path.join(distDir, 'index.html'));
 });
 // ─────────────────────────────────────────────────────────────────────────────
