@@ -1,6 +1,6 @@
 import axios from 'axios';
 import path from 'path';
-import { existsSync, readdirSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { execSync } from 'child_process';
 import * as sessionStore from './sessionStore.js';
 import { dispatchTool, TOOL_DEFINITIONS, BASE_SANDBOX_DIR } from './tools/index.js';
@@ -46,25 +46,70 @@ function hasDistBuild(sessionId) {
   return false;
 }
 
+// Overwrite vite.config.js/ts with base: './' so built asset paths are relative.
+// Without this, Vite outputs /assets/... which breaks when served under /preview/:id/
+function patchViteConfig(projectDir) {
+  const configContent = `import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  base: './',
+})
+`;
+  // Try both .js and .ts variants
+  for (const name of ['vite.config.js', 'vite.config.ts']) {
+    const configPath = path.join(projectDir, name);
+    if (existsSync(configPath)) {
+      writeFileSync(configPath, configContent, 'utf-8');
+      console.log(`[autoBuild] Patched ${name} with base: './'`);
+      return;
+    }
+  }
+  // Neither exists — write vite.config.js
+  writeFileSync(path.join(projectDir, 'vite.config.js'), configContent, 'utf-8');
+  console.log('[autoBuild] Created vite.config.js with base: "./"');
+}
+
+// If the agent already ran npm run build before we could patch vite.config,
+// fix the dist/index.html in place: rewrite absolute /assets/ paths to ./assets/
+function fixDistPaths(projectDir) {
+  const indexPath = path.join(projectDir, 'dist', 'index.html');
+  if (!existsSync(indexPath)) return;
+  const original = readFileSync(indexPath, 'utf-8');
+  const fixed = original
+    .replace(/(src|href)="\//g, '$1="./')
+    .replace(/from "\//g, 'from "./');
+  if (fixed !== original) {
+    writeFileSync(indexPath, fixed, 'utf-8');
+    console.log('[autoBuild] Fixed absolute paths in dist/index.html → relative');
+  }
+}
+
 // Called after the agent loop finishes. If the model skipped npm run build,
 // run it automatically so the user always gets a preview link.
 async function autoBuild(sessionId) {
+  const projectDir = findProjectDir(sessionId);
+
   if (hasDistBuild(sessionId)) {
-    // Build already exists — emit server_ready directly
+    // Build already ran — fix paths in case it was built with absolute base
+    if (projectDir) fixDistPaths(projectDir);
     const base = (process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`).replace(/\/$/, '');
     const previewUrl = `${base}/preview/${sessionId}`;
-    console.log(`[agent:${sessionId.slice(0, 8)}] dist/ already exists → preview: ${previewUrl}`);
+    console.log(`[agent:${sessionId.slice(0, 8)}] dist/ exists → preview: ${previewUrl}`);
     sessionStore.emit(sessionId, { type: 'server_ready', url: previewUrl });
     return;
   }
 
-  const projectDir = findProjectDir(sessionId);
   if (!projectDir) {
     console.warn(`[agent:${sessionId.slice(0, 8)}] autoBuild: no project directory found, skipping`);
     return;
   }
 
-  console.log(`[agent:${sessionId.slice(0, 8)}] autoBuild: model skipped build step — running npm run build in ${projectDir}`);
+  // Patch vite.config to use relative base before building
+  patchViteConfig(projectDir);
+
+  console.log(`[agent:${sessionId.slice(0, 8)}] autoBuild: running npm run build in ${projectDir}`);
   sessionStore.emit(sessionId, { type: 'tool_call', tool: 'run_terminal', args: { command: 'npm run build' } });
 
   try {
@@ -74,6 +119,7 @@ async function autoBuild(sessionId) {
       env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
     }).toString();
 
+    fixDistPaths(projectDir);
     console.log(`[agent:${sessionId.slice(0, 8)}] autoBuild succeeded`);
     sessionStore.emit(sessionId, { type: 'tool_result', tool: 'run_terminal', result: { stdout, exit_code: 0 } });
 
@@ -256,9 +302,11 @@ export async function runAgent(userPrompt, sessionId) {
 
       sessionStore.emit(sessionId, { type: 'tool_result', tool: name, result });
 
-      // Detect successful npm run build → emit preview URL served by Express
+      // Detect successful npm run build → fix paths + emit preview URL
       if (name === 'run_terminal' && args.command?.includes('npm run build')) {
         if (result.exit_code === 0) {
+          const projectDir = findProjectDir(sessionId);
+          if (projectDir) fixDistPaths(projectDir);
           const base = (process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`).replace(/\/$/, '');
           const previewUrl = `${base}/preview/${sessionId}`;
           console.log(`[agent:${sessionId.slice(0, 8)}] Build succeeded → preview: ${previewUrl}`);
