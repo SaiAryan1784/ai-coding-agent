@@ -1,6 +1,9 @@
 import axios from 'axios';
+import path from 'path';
+import { existsSync, readdirSync } from 'fs';
+import { execSync } from 'child_process';
 import * as sessionStore from './sessionStore.js';
-import { dispatchTool, TOOL_DEFINITIONS } from './tools/index.js';
+import { dispatchTool, TOOL_DEFINITIONS, BASE_SANDBOX_DIR } from './tools/index.js';
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const MAX_ITERATIONS = 30;
@@ -22,6 +25,68 @@ const SYSTEM_PROMPT = `You are an expert AI coding agent. Your job is to build c
 - All file paths are relative to the sandbox root. Commands run inside the session sandbox automatically.
 - Prefer writing complete files. Do not make partial edits.
 - NEVER run npm run dev. Always use npm run build as the final step.`;
+
+// Finds the first project directory inside the session sandbox that has a package.json
+function findProjectDir(sessionId) {
+  const sessionDir = path.join(BASE_SANDBOX_DIR, sessionId);
+  if (!existsSync(sessionDir)) return null;
+  for (const entry of readdirSync(sessionDir)) {
+    const candidate = path.join(sessionDir, entry);
+    if (existsSync(path.join(candidate, 'package.json'))) return candidate;
+  }
+  return null;
+}
+
+function hasDistBuild(sessionId) {
+  const sessionDir = path.join(BASE_SANDBOX_DIR, sessionId);
+  if (!existsSync(sessionDir)) return false;
+  for (const entry of readdirSync(sessionDir)) {
+    if (existsSync(path.join(sessionDir, entry, 'dist', 'index.html'))) return true;
+  }
+  return false;
+}
+
+// Called after the agent loop finishes. If the model skipped npm run build,
+// run it automatically so the user always gets a preview link.
+async function autoBuild(sessionId) {
+  if (hasDistBuild(sessionId)) {
+    // Build already exists — emit server_ready directly
+    const base = (process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`).replace(/\/$/, '');
+    const previewUrl = `${base}/preview/${sessionId}`;
+    console.log(`[agent:${sessionId.slice(0, 8)}] dist/ already exists → preview: ${previewUrl}`);
+    sessionStore.emit(sessionId, { type: 'server_ready', url: previewUrl });
+    return;
+  }
+
+  const projectDir = findProjectDir(sessionId);
+  if (!projectDir) {
+    console.warn(`[agent:${sessionId.slice(0, 8)}] autoBuild: no project directory found, skipping`);
+    return;
+  }
+
+  console.log(`[agent:${sessionId.slice(0, 8)}] autoBuild: model skipped build step — running npm run build in ${projectDir}`);
+  sessionStore.emit(sessionId, { type: 'tool_call', tool: 'run_terminal', args: { command: 'npm run build' } });
+
+  try {
+    const stdout = execSync('npm run build', {
+      cwd: projectDir,
+      timeout: 120000,
+      env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
+    }).toString();
+
+    console.log(`[agent:${sessionId.slice(0, 8)}] autoBuild succeeded`);
+    sessionStore.emit(sessionId, { type: 'tool_result', tool: 'run_terminal', result: { stdout, exit_code: 0 } });
+
+    const base = (process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`).replace(/\/$/, '');
+    const previewUrl = `${base}/preview/${sessionId}`;
+    console.log(`[agent:${sessionId.slice(0, 8)}] autoBuild preview: ${previewUrl}`);
+    sessionStore.emit(sessionId, { type: 'server_ready', url: previewUrl });
+  } catch (err) {
+    const stderr = err.stderr?.toString() || err.message;
+    console.error(`[agent:${sessionId.slice(0, 8)}] autoBuild failed:`, stderr.slice(0, 300));
+    sessionStore.emit(sessionId, { type: 'tool_result', tool: 'run_terminal', result: { error: 'Build failed', stderr } });
+  }
+}
 
 export async function runAgent(userPrompt, sessionId) {
   const model = process.env.MODEL || 'nvidia/nemotron-3-super-120b-a12b:free';
@@ -138,6 +203,10 @@ export async function runAgent(userPrompt, sessionId) {
 
       console.log(`[agent:${sessionId.slice(0, 8)}] Agent done. Final message: "${finalContent.slice(0, 200)}"`);
       sessionStore.emit(sessionId, { type: 'final', content: finalContent });
+
+      // Safety net: if the model skipped npm run build, do it automatically now.
+      await autoBuild(sessionId);
+
       sessionStore.emit(sessionId, { type: 'done' });
       return;
     }
@@ -209,5 +278,6 @@ export async function runAgent(userPrompt, sessionId) {
 
   console.error(`[agent:${sessionId.slice(0, 8)}] Reached max iterations (${MAX_ITERATIONS})`);
   sessionStore.emit(sessionId, { type: 'error', message: `Reached maximum of ${MAX_ITERATIONS} iterations.` });
+  await autoBuild(sessionId);
   sessionStore.emit(sessionId, { type: 'done' });
 }

@@ -1,8 +1,10 @@
-import { runTerminal } from './terminal.js';
+import { runTerminal, BASE_SANDBOX_DIR } from './terminal.js';
 import { listDirectory } from './listDir.js';
 import { readFile } from './readFile.js';
 import { writeFile } from './writeFile.js';
 import { webSearch } from './webSearch.js';
+
+export { BASE_SANDBOX_DIR };
 
 // Tool definitions in OpenAI function-calling format (OpenRouter accepts the same schema)
 export const TOOL_DEFINITIONS = [
