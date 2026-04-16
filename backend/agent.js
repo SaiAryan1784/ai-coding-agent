@@ -12,16 +12,16 @@ const SYSTEM_PROMPT = `You are an expert AI coding agent. Your job is to build c
 2. run_terminal: \`cd my-app && npm install\`  with timeout_ms: 180000
 3. list_directory: \`.\`  to confirm the structure
 4. write_file all required source files (overwrite the generated ones)
-5. run_terminal: \`cd my-app && npm run dev -- --port 5174\`
-6. Reply with a short summary and the localhost URL
+5. run_terminal: \`cd my-app && npm run build\`
+6. Reply with a short summary — the preview link will appear automatically.
 
 ## Rules
 - NEVER use web_search to look up how to scaffold, install, or run Vite/React — you already know these commands. Use web_search ONLY for external APIs, third-party package names you are unsure of, or domain-specific data.
-- NEVER skip npm install. NEVER skip the dev server step.
+- NEVER skip npm install. NEVER skip npm run build.
 - NEVER use placeholders or TODO comments — write complete, working code.
 - All file paths are relative to the sandbox root. Commands run inside the session sandbox automatically.
 - Prefer writing complete files. Do not make partial edits.
-- The dev server MUST be started as the final terminal step so the user gets a clickable link.`;
+- NEVER run npm run dev. Always use npm run build as the final step.`;
 
 export async function runAgent(userPrompt, sessionId) {
   const model = process.env.MODEL || 'nvidia/nemotron-3-super-120b-a12b:free';
@@ -187,19 +187,15 @@ export async function runAgent(userPrompt, sessionId) {
 
       sessionStore.emit(sessionId, { type: 'tool_result', tool: name, result });
 
-      // Detect dev server URL in terminal output.
-      // Strip ANSI escape codes first — Vite uses color codes which break naive regex.
-      if (name === 'run_terminal' && (result.stdout || result.stderr)) {
-        const combined = (result.stdout || '') + (result.stderr || '');
-        // eslint-disable-next-line no-control-regex
-        const clean = combined.replace(/\x1B\[[0-9;]*[mGKHF]/g, '');
-        const urlMatch = clean.match(/Local:\s+(http:\/\/localhost:\d+)/i)
-          || clean.match(/localhost:\s*(http:\/\/localhost:\d+)/i)
-          || clean.match(/(http:\/\/localhost:\d+)/);
-        if (urlMatch) {
-          const url = urlMatch[1].replace(/\/$/, ''); // strip trailing slash
-          console.log(`[agent:${sessionId.slice(0, 8)}] Dev server URL detected: ${url}`);
-          sessionStore.emit(sessionId, { type: 'server_ready', url });
+      // Detect successful npm run build → emit preview URL served by Express
+      if (name === 'run_terminal' && args.command?.includes('npm run build')) {
+        if (result.exit_code === 0) {
+          const base = (process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`).replace(/\/$/, '');
+          const previewUrl = `${base}/preview/${sessionId}`;
+          console.log(`[agent:${sessionId.slice(0, 8)}] Build succeeded → preview: ${previewUrl}`);
+          sessionStore.emit(sessionId, { type: 'server_ready', url: previewUrl });
+        } else {
+          console.warn(`[agent:${sessionId.slice(0, 8)}] Build failed (exit ${result.exit_code})`);
         }
       }
 

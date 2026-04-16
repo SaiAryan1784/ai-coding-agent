@@ -1,9 +1,12 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import { existsSync, readdirSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import * as sessionStore from './sessionStore.js';
 import { runAgent } from './agent.js';
+import { BASE_SANDBOX_DIR } from './tools/terminal.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -25,6 +28,34 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
+
+// ─── Preview: serve the agent-built app's dist/ folder ───────────────────────
+// Scans sandbox/{sessionId}/ for the first project that has a dist/index.html
+function findDistDir(sessionId) {
+  const sessionDir = path.join(BASE_SANDBOX_DIR, sessionId);
+  if (!existsSync(sessionDir)) return null;
+  for (const entry of readdirSync(sessionDir)) {
+    const candidate = path.join(sessionDir, entry, 'dist');
+    if (existsSync(path.join(candidate, 'index.html'))) return candidate;
+  }
+  return null;
+}
+
+// Static assets (JS, CSS, images) — must come before the SPA fallback
+app.use('/preview/:sessionId', (req, res, next) => {
+  const distDir = findDistDir(req.params.sessionId);
+  if (!distDir) return res.status(404).send('Preview not ready — build may still be running.');
+  console.log(`[server] Preview request: ${req.params.sessionId} → ${req.path}`);
+  express.static(distDir)(req, res, next);
+});
+
+// SPA fallback — any route that isn't a file serves index.html
+app.get('/preview/:sessionId/*', (req, res) => {
+  const distDir = findDistDir(req.params.sessionId);
+  if (!distDir) return res.status(404).send('Not found.');
+  res.sendFile(path.join(distDir, 'index.html'));
+});
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -85,6 +116,7 @@ app.get('/api/stream/:sessionId', (req, res) => {
 app.listen(PORT, () => {
   console.log(`\n[server] AI Agent backend running on http://localhost:${PORT}`);
   console.log(`[server] Model: ${process.env.MODEL || 'nvidia/nemotron-3-super-120b-a12b:free'}`);
+  console.log(`[server] Backend URL: ${process.env.BACKEND_URL || 'http://localhost:' + PORT}`);
   console.log(`[server] Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
   if (!process.env.OPENROUTER_API_KEY) {
     console.warn('[server] WARNING: OPENROUTER_API_KEY is not set!');
