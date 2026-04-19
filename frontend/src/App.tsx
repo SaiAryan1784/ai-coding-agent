@@ -87,7 +87,7 @@ export default function App() {
     <div className="h-screen bg-gray-950 text-gray-100 flex flex-col overflow-hidden">
 
       {/* ── Header ── */}
-      <header className="flex-shrink-0 border-b border-gray-800/80 px-6 py-3.5 flex items-center gap-3">
+      <header className="flex-shrink-0 border-b border-gray-800/80 px-4 sm:px-6 py-3.5 flex items-center gap-3">
         <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-violet-700 flex items-center justify-center text-white font-bold text-xs shadow-lg shadow-violet-500/20 flex-shrink-0">
           AI
         </div>
@@ -114,7 +114,7 @@ export default function App() {
       <div className="flex-1 flex flex-col lg:flex-row min-h-0">
 
         {/* ── Left panel ── */}
-        <div className="lg:w-[380px] flex-shrink-0 flex flex-col border-r border-gray-800/80 h-full">
+        <div className="lg:w-[380px] flex-shrink-0 flex flex-col border-b lg:border-b-0 lg:border-r border-gray-800/80 max-h-[45vh] lg:max-h-none lg:h-full">
 
           {/* Scrollable inner content */}
           <div className="flex-1 flex flex-col gap-4 p-5 overflow-y-auto min-h-0">
